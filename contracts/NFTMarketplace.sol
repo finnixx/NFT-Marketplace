@@ -6,13 +6,14 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
 import "hardhat/console.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 contract NFTMarketplace is ERC721URIStorage{
   using Counters for Counters.Counter;
 
   Counters.Counter private _tokenIds;
   Counters.Counter private _itemsSold;
-
+  AggregatorV3Interface internal priceFeed;
   address payable owner;
 
   mapping(uint256 => MarketItem) private idMarketItem;
@@ -42,7 +43,13 @@ contract NFTMarketplace is ERC721URIStorage{
    owner = payable(msg.sender);
   };
 
+  function getChainlinkDataFeedLatestAnswer() public view returns (int) {
+    	(,int price,,,) = priceFeed.latestRoundData();
+    	return price;
+	}
+
   function createToken(string memory tokenURI, uint256 price) public payable returns(uint256){
+    
     _tokenIds.increment();
 
     uint256 newTokenId = _tokenIds.current();
@@ -58,6 +65,7 @@ contract NFTMarketplace is ERC721URIStorage{
   function createMarketItem(uint256 tokenId, uint256 price) private {
     require ( price>0, "Price must be atleast One");
     require (msg.value == price/10 ,"Price must be equal to Listing Price");
+   
     
     idMarketItem[tokenId] = MarketItem(
         tokenId,
@@ -76,21 +84,28 @@ contract NFTMarketplace is ERC721URIStorage{
 
   function createMarketSale(uint256 tokenId) public payable {
     uint256 price = idMarketItem[tokenId].price;
+    uint256 ethUsd = 1/uint256(getChainlinkDataFeedLatestAnswer());
+    uint256 amountEth = price *ethUsd;
 
-    require(msg.value == price, "Please submit the asking price in order");
+
+
+    require(msg.value == amountEth, "Please submit the asking price in order");
 
     idMarketItem[tokenId].owner = payable(msg.sender);
     idMarketItem[tokenId].isSold = true;
 
     _itemsSold.increment();
 
-    uint256 listingPrice = idMarketItem[tokenId].price/10;
+    uint256 listingPrice = amountEth/10;
 
+    bool success1 = payable(address(this)).send(listingPrice);
+    require(success1, "Transfer failed.");
+
+    bool success2 = payable(idMarketItem[tokenId].seller).send(msg.value);
+    require(success2, "Transfer failed");
+      // AFTER TRANSFER OF FUNDS THE TOKEN IS TRANSFERED
     _transfer(address(this),msg.sender,tokenId);
 
-    payable(owner).transfer(listingPrice);
-
-    payable(idMarketItem[tokenId].seller).transfer(msg.value);
 
   }
 
@@ -105,7 +120,7 @@ contract NFTMarketplace is ERC721URIStorage{
         if(idMarketItem[i+1].owner= address(this)){
             uint256 currentId = i+1;
             MarketItem storage currentItem = idMarketItem[currentId];
-            items[currentId] = currentItem;
+            items[currentIndex] = currentItem;
             currentIndex +=1;
 
         }
